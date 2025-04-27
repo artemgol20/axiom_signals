@@ -1,8 +1,9 @@
 from playwright.async_api import async_playwright
 import asyncio
 import json
+from datetime import datetime
 
-WATCHLIST = {"FLOPY", "NEW MOONPAY MASCOT NAME"}
+
 seen_tokens = set()
 
 
@@ -13,10 +14,9 @@ async def intercept_axiom_ws(page):
 
 
 
-        seen_tokens = set()
+
 
         def format_new_token(token: dict) -> str:
-            print(token)
             name = token.get("token_name") or "Unknown"
             ticker = token.get("token_ticker") or "???"
             address = token.get("pair_address") or "N/A"
@@ -24,43 +24,56 @@ async def intercept_axiom_ws(page):
             deployer = token.get("deployer_address") or "N/A"
             protocol = token.get("protocol") or "N/A"
             signature = token.get("signature") or "N/A"
+            supply = token.get("supply")
+            liquidity_sol = token.get("initial_liquidity_sol")
+            liquidity_token = token.get("initial_liquidity_token")
+            protocol_details = token.get("protocol_details", {})
+            program = protocol_details.get("tokenProgram") or "N/A"
+            fees = protocol_details.get("tradeFeeRate") or "N/A"
             website = token.get("website") or "N/A"
             twitter = token.get("twitter") or "N/A"
             telegram = token.get("telegram") or "N/A"
             discord = token.get("discord") or "N/A"
+            created_time = token.get("created_at") or "N/A"
+            time_to_trade = token.get("open_trading") or "N/A"
+            if str(fees) != "N/A":
+                fees = fees / 10000
 
-            supply = token.get("supply")
-            liquidity_sol = token.get("initial_liquidity_sol")
-            liquidity_token = token.get("initial_liquidity_token")
-            lp_burned = token.get("lp_burned")
-            dev_percent = token.get("dev_holds_percent")
-            snipers_percent = token.get("snipers_hold_percent")
-
+            created_at_dt = datetime.strptime(created_time, "%Y-%m-%dT%H:%M:%S.%fZ")
+            open_trading_dt = datetime.strptime(time_to_trade, "%Y-%m-%dT%H:%M:%S.%fZ")
+            if open_trading_dt < created_at_dt:
+                time_difference = "Торговля уже началась"
+            else:
+                time_difference = open_trading_dt - created_at_dt
+                time_difference = time_difference.total_seconds()
+            program_of_token = "N/A"
+            if program == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA":
+                program_of_token = "SPL Token Program"
+            elif program == "TokenzQdNwGdsTbmPa3qzYjDdyCjTiMQuYzcuEGoVY":
+                program_of_token = "Token 2022 Program"
             def fmt_or_na(value, fmt):
                 return fmt.format(value) if value is not None else "N/A"
 
             return f"""
         📢 Новая пара на рынке!
-        ━━━━━━━━━━━━━━━━━━━━━━━
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         📛 Название: {name} (${ticker})
         🌐 Адрес пары: {address}
-        🔗 Token Mint: {token_address}
-        🧑‍💻 Деплойер: {deployer}
+        🔗 CA: {token_address}
+        🧑‍ Деплойер: {deployer}
         🧪 Протокол: {protocol}
         📜 Подпись: {signature}
-
+        💻 Програма: {program_of_token}
         📦 Эмиссия: {fmt_or_na(supply, '{:,}')}
         💧 Ликвидность: {fmt_or_na(liquidity_sol, '{:.2f}')} SOL / {fmt_or_na(liquidity_token, '{:,}')} токенов
-        🔥 Сожжено LP: {fmt_or_na(lp_burned, '{:.2f}')}%
-        🧬 У разработчиков: {fmt_or_na(dev_percent, '{:.2f}')}%
-        🎯 У снайперов: {fmt_or_na(snipers_percent, '{:.2f}')}%
-
-        🌍 Ссылки:
-        🔗 Website: {website}
-        🐦 Twitter: {twitter}
-        💬 Telegram: {telegram}
-        📣 Discord: {discord}
-        ━━━━━━━━━━━━━━━━━━━━━━━
+        🌐 Сайт: {website}
+        📜 Твиттер: {twitter}
+        🧪 Телеграм: {telegram}
+        🔗 Дискорд: {discord}
+        📦 Комиссия: {fees}%
+        ⏰ Время создания и начало торгов: {created_time} ━━━ {time_to_trade}
+        📢 Начало торгов через: {time_difference}
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """
 
         async def handle_frame(msg):
@@ -90,15 +103,14 @@ async def intercept_axiom_ws(page):
                 print(f"[ERROR] Ошибка при обработке кадра: {e}")
 
         ws.on("framereceived", lambda msg: asyncio.create_task(handle_frame(msg)))
-        ws.on("framesent", lambda msg: print(f"[WS FRAME SENT] {msg}"))
-        ws.on("close", lambda _: print("[WS CLOSED]"))
+
 
     page.on("websocket", on_websocket)
 
 
 async def main():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False, args=['--start-maximized'])
+        browser = await p.chromium.launch(headless=False)
         context = await browser.new_context(storage_state="state.json")
         page = await context.new_page()
 
