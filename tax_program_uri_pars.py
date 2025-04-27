@@ -1,6 +1,9 @@
 import asyncio
 from playwright.async_api import async_playwright, Page
-from  time import  sleep
+from time import sleep
+
+token_address = "2eGu6tM4oHqjFkQYsH2HThTDdpr1yc2V1v9KuNLdrESP"  # замени на нужный адрес
+
 
 async def parse_token_extensions(page: Page, token_address: str) -> dict:
     url = f"https://solscan.io/token/{token_address}#metadata"
@@ -49,18 +52,27 @@ async def parse_token_extensions(page: Page, token_address: str) -> dict:
     return result
 
 
-async def main():
+async def main(token_address: str):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
 
-        token_address = "2eGu6tM4oHqjFkQYsH2HThTDdpr1yc2V1v9KuNLdrESP"  # замени на нужный адрес
         data = await parse_token_extensions(page, token_address)
-        print(data)
+        # print(data)
 
+        TAX = data["neutral_value"]
+        token_program = data["token_program"]["name"]
+        uri = ''
+        for item in data['pushed_content']:
+            if 'uri' in item:
+                uri = item['uri'].strip('"')
+                break
+
+        print(
+            f'token: {data["token"]}\nTAX: {TAX}\ntoken_program: {token_program}\nuri: {uri}')
         await browser.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(token_address))
