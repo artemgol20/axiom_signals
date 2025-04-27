@@ -1,8 +1,14 @@
 import asyncio
 from playwright.async_api import async_playwright, Page
 from time import sleep
+import json
+import re
 
-token_address = "2eGu6tM4oHqjFkQYsH2HThTDdpr1yc2V1v9KuNLdrESP"  # замени на нужный адрес
+# Список адресов токенов
+token_addresses = [
+    "2eGu6tM4oHqjFkQYsH2HThTDdpr1yc2V1v9KuNLdrESP",
+    # добавляй сюда другие адреса
+]
 
 
 async def parse_token_extensions(page: Page, token_address: str) -> dict:
@@ -12,13 +18,11 @@ async def parse_token_extensions(page: Page, token_address: str) -> dict:
     result = {"token": token_address}
 
     try:
-        # 1. Значение внутри специфичного обёрточного div
         xpath = '/html/body/div[1]/div[1]/div[3]/div[1]/div[2]/div[2]/div[2]/div[1]/div[2]/div/div[2]/div[4]/div/div/div[2]'
         neutral_value_elem = await page.query_selector(f'xpath={xpath}')
         neutral_value = await neutral_value_elem.text_content() if neutral_value_elem else None
         result["neutral_value"] = neutral_value.strip() if neutral_value else None
 
-        # 2. Название и ссылка "Token 2022 Program"
         token_program_elem = await page.query_selector('span.textLink a')
         if token_program_elem:
             program_name = await token_program_elem.text_content()
@@ -30,7 +34,6 @@ async def parse_token_extensions(page: Page, token_address: str) -> dict:
         else:
             result["token_program"] = None
 
-        # 3. Тексты всех вложенных div внутри pushed-content object-container
         container_values = []
         variable_rows = await page.query_selector_all('div.pushed-content.object-container div.variable-row')
 
@@ -52,27 +55,58 @@ async def parse_token_extensions(page: Page, token_address: str) -> dict:
     return result
 
 
-async def main(token_address: str):
+async def parse_uri_socials(page: Page, uri: str) -> dict:
+    await page.goto(uri, wait_until='domcontentloaded')
+    html_content = await page.content()
+
+    match = re.search(r'<pre>(.*?)</pre>', html_content, re.DOTALL)
+    if not match:
+        return {"twitter": "NaN", "website": "NaN", "telegram": "NaN"}
+
+    try:
+        json_data = json.loads(match.group(1))
+        socials = json_data.get("properties", {}).get("socials", {})
+        return {
+            "twitter": socials.get("twitter", "NaN"),
+            "website": socials.get("website", "NaN"),
+            "telegram": socials.get("telegram", "NaN")
+        }
+    except json.JSONDecodeError:
+        return {"twitter": "NaN", "website": "NaN", "telegram": "NaN"}
+
+
+async def process_token(page: Page, token_address: str):
+    data = await parse_token_extensions(page, token_address)
+
+    TAX = data.get("neutral_value")
+    token_program = data.get("token_program", {}).get("name") if data.get("token_program") else None
+    uri = ''
+    for item in data.get('pushed_content', []):
+        if 'uri' in item:
+            uri = item['uri'].strip('"')
+            break
+
+    print(f'token: {data["token"]}\nTAX: {TAX}\ntoken_program: {token_program}\nuri: {uri}')
+
+    if uri:
+        socials = await parse_uri_socials(page, uri)
+        print(f"twitter: {socials['twitter']}")
+        print(f"website: {socials['website']}")
+        print(f"telegram: {socials['telegram']}")
+    print("-" * 50)
+
+
+async def main():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=False)
         context = await browser.new_context()
         page = await context.new_page()
 
-        data = await parse_token_extensions(page, token_address)
-        # print(data)
+        tasks = [process_token(page, addr) for addr in token_addresses]
+        await asyncio.gather(*tasks)
 
-        TAX = data["neutral_value"]
-        token_program = data["token_program"]["name"]
-        uri = ''
-        for item in data['pushed_content']:
-            if 'uri' in item:
-                uri = item['uri'].strip('"')
-                break
-
-        print(
-            f'token: {data["token"]}\nTAX: {TAX}\ntoken_program: {token_program}\nuri: {uri}')
         await browser.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main(token_address))
+    asyncio.run(main())
