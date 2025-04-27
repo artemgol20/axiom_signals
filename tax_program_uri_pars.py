@@ -1,14 +1,8 @@
 import asyncio
 from playwright.async_api import async_playwright, Page
-from time import sleep
 import json
 import re
-
-# Список адресов токенов
-token_addresses = [
-    "2eGu6tM4oHqjFkQYsH2HThTDdpr1yc2V1v9KuNLdrESP",
-    # добавляй сюда другие адреса
-]
+from time import sleep
 
 
 async def parse_token_extensions(page: Page, token_address: str) -> dict:
@@ -21,7 +15,7 @@ async def parse_token_extensions(page: Page, token_address: str) -> dict:
         xpath = '/html/body/div[1]/div[1]/div[3]/div[1]/div[2]/div[2]/div[2]/div[1]/div[2]/div/div[2]/div[4]/div/div/div[2]'
         neutral_value_elem = await page.query_selector(f'xpath={xpath}')
         neutral_value = await neutral_value_elem.text_content() if neutral_value_elem else None
-        result["neutral_value"] = neutral_value.strip() if neutral_value else None
+        result["TAX"] = neutral_value.strip() if neutral_value else None
 
         token_program_elem = await page.query_selector('span.textLink a')
         if token_program_elem:
@@ -75,10 +69,10 @@ async def parse_uri_socials(page: Page, uri: str) -> dict:
         return {"twitter": "NaN", "website": "NaN", "telegram": "NaN"}
 
 
-async def process_token(page: Page, token_address: str):
+async def process_token(page: Page, token_address: str) -> dict:
     data = await parse_token_extensions(page, token_address)
 
-    TAX = data.get("neutral_value")
+    TAX = data.get("TAX")
     token_program = data.get("token_program", {}).get("name") if data.get("token_program") else None
     uri = ''
     for item in data.get('pushed_content', []):
@@ -86,27 +80,33 @@ async def process_token(page: Page, token_address: str):
             uri = item['uri'].strip('"')
             break
 
-    print(f'token: {data["token"]}\nTAX: {TAX}\ntoken_program: {token_program}\nuri: {uri}')
+    result = {
+        "TAX": TAX,
+        "token_program": token_program,
+        "uri": uri,
+    }
 
     if uri:
         socials = await parse_uri_socials(page, uri)
-        print(f"twitter: {socials['twitter']}")
-        print(f"website: {socials['website']}")
-        print(f"telegram: {socials['telegram']}")
-    print("-" * 50)
+        result.update(socials)
+
+    return result
 
 
-async def main():
+# Главная функция, которая будет запускать обработку токена
+async def main_tax(token_address: str):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         context = await browser.new_context()
         page = await context.new_page()
 
-        tasks = [process_token(page, addr) for addr in token_addresses]
-        await asyncio.gather(*tasks)
+        result = await process_token(page, token_address)
+        print(result)
 
         await browser.close()
 
 
+# Запуск теста с одним токеном
 if __name__ == "__main__":
-    asyncio.run(main())
+    token_address = "2eGu6tM4oHqjFkQYsH2HThTDdpr1yc2V1v9KuNLdrESP"  # Замените на нужный адрес токена
+    asyncio.run(main_tax(token_address))
